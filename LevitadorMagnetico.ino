@@ -1,106 +1,90 @@
-//Universidad del Valle de Guatemala 
-//Proyecto Levitador Magnetico
-//Daniel Garcia, 14152
-//Ricardo Galindo, 
-
-//Librerias necesarias
 #include <stdint.h>
 #include <stdbool.h>
+#define PART_TM4C123GH6PM
+#include "inc/tm4c123gh6pm.h"
 #include "inc/hw_ints.h"
-#include "inc/hw_memmap.h"
-#include "inc/hw_types.h"
-#include "driverlib/debug.h"
-#include "driverlib/gpio.h"
 #include "driverlib/interrupt.h"
-#include "driverlib/rom_map.h"
-#include "driverlib/rom.h"
 #include "driverlib/sysctl.h"
 #include "driverlib/timer.h"
 
-//Analog Inputs, Potenciometro y sensores de efecto Hall.
-int SensorH = 5;
-int SensorL = 6;
-int Ref = 7;
-int Control_Voltage = 0;
-int Signal_Ind = 0;
+
+//Analog Inputs, Potentiometer and Hall Effect sensors.
+int sensorH = 27;
+int sensorL = 28;
+int ref = 29;
+
+//PID Variables
+int Kp = 0;
+int Ki = 0;
+int Kd = 0;
+int e = 0;
+int ed = 0;
+int e_old = 0;
+int E = 0;
+int E_old = 0;
 int Actual_Value = 0;
+
+//Analog values
 int Signal_Mag = 0;
+int Signal_Ind = 0;
 int Vref = 0;
 
-//Variables de salida
-int controlVoltage = 0; 
+//DAC Variables
 byte DACSignal = B00000000;
 const int lowestBit = 31;
 const int highestBit = 39;
 int currentBit = 0;
 
-//Variables PID
-uint8_t redLedState = LOW;
-uint8_t tiempo = LOW;
-int erroractual = 0;
-int Erroractual = 0;
-int Errorviejo = 0;
-int errorviejo = 0;
-int errorderivativo = 0;
-int errortotal = 0;
-int Pot = 0;
-int sensorValue = 0;
-int sensorValue1 = 0;
-int Sensores = 0;
-  
-int Kd = 0;
-int Kp = 2;
-int Ki = 0;
-
-void setup()
-{
-  //Timer y comunicacion serial
-  Serial.begin(9600);  
-  MAP_SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER1);
-  MAP_TimerConfigure(TIMER1_BASE, TIMER_CFG_PERIODIC);
-  MAP_TimerLoadSet(TIMER1_BASE, TIMER_A, MAP_SysCtlClockGet() / 100000);
-  TimerIntRegister(TIMER1_BASE, TIMER_A, &Timer1IntHandler);
-  MAP_TimerIntEnable(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
-  MAP_TimerEnable(TIMER1_BASE, TIMER_A);
-
-  //Poner pines del 31 a 38 como salidas digitales.
-  for (int thisPin =lowestBit; thisPin <= highestBit; thisPin++) { 
-    pinMode(thisPin, OUTPUT); 
-  }
-
+void initTimer()
+{  
+  ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
+  ROM_TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);   // 32 bits Timer
+  TimerIntRegister(TIMER0_BASE, TIMER_A, Timer0Isr);    // Registering  isr       
+  ROM_TimerEnable(TIMER0_BASE, TIMER_A); 
+  ROM_IntEnable(INT_TIMER0A); 
+  ROM_TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);  
 }
 
-void loop()
+void Timer0Isr(void)
 {
-  //Entrada
-  Signal_Ind = analogRead(SensorH);
-  Signal_Mag = analogRead(SensorL);
-  Vref = analogRead(Ref);
-
-  //PID
-  erroractual = Vref - (Signal_Mag - Signal_Ind);
-  errorderivativo = (erroractual-errorviejo) /(MAP_SysCtlClockGet() / 100000) ;
-  Erroractual = (Errorviejo + erroractual)*(MAP_SysCtlClockGet() / 100000) ;
-  errortotal = (erroractual*Kp + Erroractual*Ki + errorderivativo*Kd) * 4095/255;
-
-  //Salida
-  DACSignal = byte(controlVoltage);
+  ROM_TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);  // Clear the timer interrupt
   DAC();
 }
 
-
-void Timer1IntHandler() {
-  MAP_TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
-  Pot = analogRead(Ref);
-  sensorValue = analogRead(SensorH);
-  sensorValue1 = analogRead(SensorL);
-  Sensores = sensorValue-sensorValue1;
-  errorviejo = erroractual;
-  Errorviejo = Erroractual;
-  erroractual = Pot - Sensores;
+void setup()
+{
+  for (int thisPin =lowestBit; thisPin <= highestBit; thisPin++)
+  { 
+    pinMode(thisPin, OUTPUT); 
+  }
+  //Serial.begin(9600);
+  initTimer();
 }
 
-void DAC(){
+
+void loop()
+{
+  unsigned long ulPeriod;
+  unsigned int Hz = 100;   // frequency in Hz  
+  ulPeriod = (SysCtlClockGet() / Hz)/ 2;
+  ROM_TimerLoadSet(TIMER0_BASE, TIMER_A,ulPeriod -1);
+  while (1)
+  {
+    Signal_Ind = analogRead(sensorH);
+    Signal_Mag = analogRead(sensorL);
+    Vref = analogRead(ref);
+
+    e = Vref - (Signal_Mag - Signal_Ind);
+    ed = e - e_old;
+    E = E_old + e;
+    Actual_Value = Kp*e + Ki*E + Kd*ed;
+    e_old = e;
+    E_old = E;
+  }
+}
+
+void DAC()
+{
     for (int index = 0; index <= 7; index++) { 
       currentBit = bitRead(DACSignal, index);
       if(currentBit == 0){
@@ -111,7 +95,5 @@ void DAC(){
         }
     }
 }
-
-
 
 
