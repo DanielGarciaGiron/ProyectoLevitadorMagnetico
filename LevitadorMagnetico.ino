@@ -1,8 +1,14 @@
-#include <inc/tm4c123gh6pm.h>
-//8000 PERIOD = 1 KILOHERTZ, can be modified.
-#define PERIOD 80000
-//PIN PF1 = RED_LED
-#define LED RED_LED
+#include <stdbool.h>
+#include <stdint.h>
+#include "inc/tm4c123gh6pm.h"
+#include "inc/hw_memmap.h"
+#include "driverlib/gpio.h"
+#include "driverlib/interrupt.h"
+#include "driverlib/pin_map.h"
+#include "driverlib/sysctl.h"
+#include "driverlib/timer.h"
+#include "driverlib/uart.h"
+
 
 
 //Analog Inputs, Potentiometer and Hall Effect sensors.
@@ -32,37 +38,57 @@ const int lowestBit = 31;
 const int highestBit = 39;
 int currentBit = 0;
 
-void initTimer(void)
-{
-  SYSCTL_RCGCTIMER_R |= 1;
-  TIMER0_CTL_R &= ~(1 << 8); // disable timer B
-  TIMER0_CFG_R  = 4; 
-  TIMER0_TBMR_R = 0b1010; // set T1AMS, T0MR=0
-  TIMER0_TBILR_R = PERIOD & 0xffff; // set interval (lower 16 bits) 
-  TIMER0_TBPR_R = PERIOD >> 16; // set interval (upper bits)
-  TIMER0_TBMATCHR_R = 100; //  set match value
-  TIMER0_CTL_R |= (1 << 8); // enable timer B
-  GPIO_PORTF_AFSEL_R |= (1 << 1); // select alternate function for PF1 
-  GPIO_PORTF_PCTL_R |= (7 << 4);
-}
-
-void ISR(void)
-{
-  DAC();
-}
+//Interrupt variables
+volatile uint32_t g_ui32Counter = 0;
 
 void setup()
 {
-  for (int thisPin =lowestBit; thisPin <= highestBit; thisPin++)
-  { 
-    pinMode(thisPin, OUTPUT); 
+  for (int thisPin = lowestBit; thisPin <= highestBit; thisPin++)
+  {
+    pinMode(thisPin, OUTPUT);
   }
   //Serial.begin(9600);
-  pinMode(LED, OUTPUT); 
-  initTimer();
-  attachInterrupt(LED, ISR, RISING);
+
+  SysCtlClockSet(SYSCTL_SYSDIV_1 | SYSCTL_USE_OSC | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
+  // Configure Timer0B as a 16-bit periodic timer.
+  TimerConfigure(TIMER0_BASE, TIMER_CFG_SPLIT_PAIR | TIMER_CFG_B_PERIODIC);
+  //------------------------------------------------------------------------------
+  //------------------------------------------------------------------------------
+  // Set the Timer0B load value to 1ms.
+  TimerLoadSet(TIMER0_BASE, TIMER_B, SysCtlClockGet() / 1000);
+  //------------------------------------------------------------------------------
+  //------------------------------------------------------------------------------
+  // Enable the Timer0B interrupt on the processor (NVIC).
+  IntEnable(INT_TIMER0B);
+  // Enable Timer0B.
+  TimerEnable(TIMER0_BASE, TIMER_B);
+  // Enable processor interrupts.
+  IntMasterEnable();
+  // Configure the Timer0B interrupt for timer timeout.
+  TimerIntEnable(TIMER0_BASE, TIMER_TIMB_TIMEOUT);
+  // Initialize the interrupt counter.
+  g_ui32Counter = 0;
+  uint32_t ui32PrevCount = 0;
+  // Loop forever while the Timer0B runs.
+  while (1)
+  {
+    // If the interrupt count changed, print the new value
+    if (ui32PrevCount != g_ui32Counter)
+    {
+      ui32PrevCount = g_ui32Counter;
+    }
+  }
 }
 
+void Timer0BIntHandler()
+{
+  // Clear the timer interrupt flag.
+  TimerIntClear(TIMER0_BASE, TIMER_TIMB_TIMEOUT);
+
+  DAC();
+
+}
 
 void loop()
 {
@@ -73,22 +99,22 @@ void loop()
   e = Vref - (Signal_Mag - Signal_Ind);
   ed = e - e_old;
   E = E_old + e;
-  Actual_Value = Kp*e + Ki*E + Kd*ed;
+  Actual_Value = Kp * e + Ki * E + Kd * ed;
   e_old = e;
   E_old = E;
 }
 
 void DAC()
 {
-    for (int index = 0; index <= 7; index++) { 
-      currentBit = bitRead(DACSignal, index);
-      if(currentBit == 0){
-        digitalWrite(index+31, LOW);
-      }
-      else{
-        digitalWrite(index+31, HIGH);
-        }
+  for (int index = 0; index <= 7; index++) {
+    currentBit = bitRead(DACSignal, index);
+    if (currentBit == 0) {
+      digitalWrite(index + 31, LOW);
     }
+    else {
+      digitalWrite(index + 31, HIGH);
+    }
+  }
 }
 
 
