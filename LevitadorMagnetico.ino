@@ -15,8 +15,8 @@ int ref = PE_2;
 //------------------------------------------------------
 //PID Variables
 float Kp = 0.5;
-float Ki = 0.1;
-float Kd = 1;
+float Ki = 0.01;
+float Kd = 0.25;
 //------------------------------------------------------
 
 //PID Constants
@@ -26,17 +26,15 @@ float e_old = 0;
 float E = 0;
 float E_old = 0;
 float Actual_Value = 0;
+int output = 0;
 
 //Analog values
 int analogVal = 0;
 int Vref = 0;
-float newAnalogVal = 0;
 
 //DAC Variables
 byte DACSignal = B00000000;
-const int lowestBit = 31;
-const int highestBit = 39;
-int currentBit = 0;
+
 
 void initTimer()
 {
@@ -80,9 +78,6 @@ void loop()
     analogVal = analogRead(sensores);
     Vref = analogRead(ref);
 
-    newAnalogVal = analogVal * 57 - 79156;
-
-
     e = Vref - analogVal;
     ed = e - e_old;
     E = E_old + e;
@@ -90,9 +85,17 @@ void loop()
     e_old = e;
     E_old = E;
 
+    output = 0.127 * Actual_Value + 128;
+
+    if (Actual_Value >= 1000) {
+      output = 255;
+    }
+    if (Actual_Value <= -1000) {
+      output = 0;
+    }
     Serial.println(Actual_Value);
 
-    DACSignal = byte(Actual_Value);
+    DACSignal = byte(output);
   }
 }
 
