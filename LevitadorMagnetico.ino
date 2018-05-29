@@ -14,9 +14,9 @@ int ref = PE_2;
 
 //------------------------------------------------------
 //PID Variables
-float Kp = 0.5;
-float Ki = 0.01;
-float Kd = 0.25;
+float Kp = 0.01;
+float Ki = 0.001;
+float Kd = 0.05;
 //------------------------------------------------------
 
 //PID Constants
@@ -93,6 +93,7 @@ void loop()
     if (Actual_Value <= -1000) {
       output = 0;
     }
+    Serial.println(e);
     Serial.println(Actual_Value);
 
     DACSignal = byte(output);
